@@ -126,13 +126,173 @@ VkResult VulkanContext::buildShaderFromFile(AAssetManager *assetManager, const c
     return result;
 }
 
+VkResult VulkanContext::buildTextureFromBitmap(JNIEnv *env, jobject bitmap, VulkanDeviceInfo device,
+                                               TextureObject *obj, VkImageUsageFlags usage
+) {
+    // Get bitmap info
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        LOGE("Image::createFromBitmap: Failed to AndroidBitmap_getInfo");
+        return VK_ERROR_FORMAT_NOT_SUPPORTED;
+    }
+    obj->texWidth = info.width;
+    obj->texHeight = info.height;
+    LOGD("width = %d, height = %d, stride = %d", info.width, info.height, info.stride);
+
+    // Allocate the linear texture so texture could be copied over
+    VkImageCreateInfo image_create_info = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .extent = {
+                    .width = obj->texWidth,
+                    .height = obj->texHeight,
+                    .depth = 1,
+            },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT),
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &device.queueFamilyIndex_,
+            .initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED,
+    };
+    VkMemoryAllocateInfo mem_alloc = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .allocationSize = 0,
+            .memoryTypeIndex = 0,
+    };
+    CALL_VK(vkCreateImage, device.device_, &image_create_info, nullptr, &obj->image);
+    VkMemoryRequirements mem_reqs;
+    vkGetImageMemoryRequirements(device.device_, obj->image, &mem_reqs);
+    mem_alloc.allocationSize = mem_reqs.size;
+    LOGI("allocationSize = %llu", mem_alloc.allocationSize);
+
+    mapMemoryTypeToIndex(device.deviceMemoryProperties_, mem_reqs.memoryTypeBits,
+                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                         &mem_alloc.memoryTypeIndex);
+    CALL_VK(vkAllocateMemory, device.device_, &mem_alloc, nullptr, &obj->mem);
+    CALL_VK(vkBindImageMemory, device.device_, obj->image, obj->mem, 0);
+
+    const uint32_t bufferSize = info.stride * info.height;
+
+    // Create buffer
+    VkBuffer staging;
+    VkDeviceMemory stagingMem;
+    const VkBufferCreateInfo bufferCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = bufferSize,
+            .usage = usage,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+    };
+    CALL_VK(vkCreateBuffer, device.device_, &bufferCreateInfo, nullptr, &staging);
+    // Allocate memory for the buffer
+    VkMemoryRequirements memoryRequirements;
+    vkGetBufferMemoryRequirements(device.device_, staging, &memoryRequirements);
+    VkMemoryAllocateInfo allocateInfo = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .allocationSize = memoryRequirements.size,
+            .memoryTypeIndex = 0,
+    };
+    mapMemoryTypeToIndex(device.deviceMemoryProperties_, memoryRequirements.memoryTypeBits,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         &allocateInfo.memoryTypeIndex);
+    CALL_VK(vkAllocateMemory, device.device_, &allocateInfo, nullptr, &stagingMem);
+    vkBindBufferMemory(device.device_, staging, stagingMem, 0);
+
+    // Copy bitmap pixels to the buffer memory
+    void *bitmapData = nullptr;
+    AndroidBitmap_lockPixels(env, bitmap, &bitmapData);
+
+
+    void *data;
+
+    CALL_VK(vkMapMemory, device.device_, stagingMem, 0, mem_alloc.allocationSize, 0, &data);
+    memcpy(data, bitmapData, bufferSize);
+    vkUnmapMemory(device.device_, stagingMem);
+
+    AndroidBitmap_unlockPixels(env, bitmap);
+
+    VkCommandPoolCreateInfo cmdPoolCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .queueFamilyIndex = device.queueFamilyIndex_,
+    };
+    VkCommandPool cmdPool;
+    CALL_VK(vkCreateCommandPool, device.device_, &cmdPoolCreateInfo, nullptr, &cmdPool);
+
+    VkCommandBuffer gfxCmd;
+    const VkCommandBufferAllocateInfo cmd = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .commandPool = cmdPool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+    };
+    CALL_VK(vkAllocateCommandBuffers, device.device_, &cmd, &gfxCmd);
+
+    VkCommandBufferBeginInfo cmd_buf_info = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .pInheritanceInfo = nullptr};
+    CALL_VK(vkBeginCommandBuffer, gfxCmd, &cmd_buf_info);
+
+    const VkBufferImageCopy bufferImageCopy = {
+            .bufferOffset = 0,
+            .bufferRowLength = info.stride / 4,
+            .bufferImageHeight = info.height,
+            .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            .imageOffset = {0, 0, 0},
+            .imageExtent = {info.width, info.height, 1},
+    };
+    vkCmdCopyBufferToImage(gfxCmd, staging, obj->image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bufferImageCopy);
+
+    CALL_VK(vkEndCommandBuffer, gfxCmd);
+    VkFenceCreateInfo fenceInfo = {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+    };
+    VkFence fence;
+    CALL_VK(vkCreateFence, device.device_, &fenceInfo, nullptr, &fence);
+
+    VkSubmitInfo submitInfo = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = nullptr,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = nullptr,
+            .pWaitDstStageMask = nullptr,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &gfxCmd,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = nullptr,
+    };
+    CALL_VK(vkQueueSubmit, device.queue_, 1, &submitInfo, fence);
+    CALL_VK(vkWaitForFences, device.device_, 1, &fence, VK_TRUE, 100000000);
+    vkDestroyFence(device.device_, fence, nullptr);
+
+    vkFreeCommandBuffers(device.device_, cmdPool, 1, &gfxCmd);
+    vkDestroyCommandPool(device.device_, cmdPool, nullptr);
+    return VK_SUCCESS;
+}
+
 void VulkanContext::initWindow(ANativeWindow *platformWindow, uint32_t width, uint32_t height) {
     window.nativeWindow = platformWindow;
     window.width = width;
     window.height = height;
 }
 
-bool VulkanContext::initVulkan(AAssetManager *manager, bool enableDebug) {
+bool
+VulkanContext::initVulkan(JNIEnv *env, jobject bitmap, AAssetManager *manager, bool enableDebug) {
     VkApplicationInfo appInfo = {
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pNext = nullptr,
@@ -143,22 +303,31 @@ bool VulkanContext::initVulkan(AAssetManager *manager, bool enableDebug) {
             .apiVersion = VK_MAKE_VERSION(1, 1, 0),
     };
 
-    // create device
+    // Create Instance, Device And Pick QueueFamily<VK_QUEUE_GRAPHICS_BIT>
     createVulkanDevice(enableDebug, &appInfo);
 
+    // Create Surface And Swapchain
     createSwapChain();
 
-    // create render pass
+    // Create render pass
     createRenderPass();
 
     // Create 2 frame buffers.
     createFrameBuffers(render.renderPass_);
 
-    // create vertex buffers
+    // Create bitmap texture
+    createTexture(env, bitmap);
+
+    // Create Vertex Fuffers
     createBuffers();
+
+    // Create Fence And Semaphore; Require VkDevice
+    createFenceAndSemaphore();
 
     // Create graphics pipeline
     createGraphicsPipeline(manager);
+
+    createDescriptorSet();
 
     createCommandPool();
 
@@ -292,8 +461,6 @@ void VulkanContext::createVulkanDevice(bool enableDebug,
 }
 
 void VulkanContext::createSwapChain() {
-    memset(&swapchain, 0, sizeof(swapchain));
-
     // Create Surface
     VkAndroidSurfaceCreateInfoKHR createInfo{
             .sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
@@ -419,7 +586,7 @@ void VulkanContext::deleteSwapChain() {
     vkDestroySwapchainKHR(device.device_, swapchain.swapchain_, nullptr);
 }
 
-void VulkanContext::createFrameBuffers(VkRenderPass &renderPass, VkImageView depthView) {
+void VulkanContext::createFrameBuffers(VkRenderPass &renderPass) {
     // query display attachment to swapchain
     uint32_t swapchainImagesCount = 0;
     CALL_VK(vkGetSwapchainImagesKHR, device.device_, swapchain.swapchain_,
@@ -463,8 +630,8 @@ void VulkanContext::createFrameBuffers(VkRenderPass &renderPass, VkImageView dep
     // create a framebuffer from each swapchain image
     swapchain.framebuffers_.resize(swapchain.swapchainLength_);
     for (uint32_t i = 0; i < swapchain.swapchainLength_; i++) {
-        VkImageView attachments[2] = {
-                swapchain.displayViews_[i], depthView,
+        VkImageView attachments[1] = {
+                swapchain.displayViews_[i],
         };
         VkFramebufferCreateInfo fbCreateInfo{
                 .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -476,12 +643,14 @@ void VulkanContext::createFrameBuffers(VkRenderPass &renderPass, VkImageView dep
                 .height = static_cast<uint32_t>(swapchain.displaySize_.height),
                 .layers = 1,
         };
-        fbCreateInfo.attachmentCount = (depthView == VK_NULL_HANDLE ? 1 : 2);
+        fbCreateInfo.attachmentCount = 1;
 
         CALL_VK(vkCreateFramebuffer, device.device_, &fbCreateInfo, nullptr,
                 &swapchain.framebuffers_[i]);
     }
+}
 
+void VulkanContext::createFenceAndSemaphore() {
     // We need to create a fence to be able, in the main loop, to wait for our
     // draw command(s) to finish before swapping the framebuffers
     VkFenceCreateInfo fenceCreateInfo{
@@ -506,9 +675,23 @@ void VulkanContext::createFrameBuffers(VkRenderPass &renderPass, VkImageView dep
 bool VulkanContext::createBuffers() {
     // Vertex positions
     const float vertexData[] = {
-            -1.0f, -1.0f, 0.0f,
-            1.0f, -1.0f, 0.0f,
+            -1.0f, -1.0f,
+            0.0f, 0.0f, 0.0f,
+
+            1.0f, -1.0f,
             0.0f, 1.0f, 0.0f,
+
+            -1.0f, 1.0f,
+            0.0f, 0.0f, 1.0f,
+
+            1.0f, 1.0f,
+            1.0f, 1.0f, 1.0f,
+
+            1.0f, -1.0f,
+            0.0f, 1.0f, 0.0f,
+
+            -1.0f, 1.0f,
+            0.0f, 0.0f, 1.0f,
     };
 
     // Create a vertex buffer
@@ -560,18 +743,41 @@ void VulkanContext::deleteBuffers() {
 }
 
 VkResult VulkanContext::createGraphicsPipeline(AAssetManager *manager) {
-    memset(&gfxPipeline, 0, sizeof(gfxPipeline));
+    const VkDescriptorSetLayoutBinding descriptorSetLayoutBinding{
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+    };
+    const VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = nullptr,
+            .bindingCount = 1,
+            .pBindings = &descriptorSetLayoutBinding,
+    };
+    CALL_VK(vkCreateDescriptorSetLayout, device.device_,
+            &descriptorSetLayoutCreateInfo, nullptr,
+            &gfxPipeline.dscLayout_);
 
-    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .pNext = nullptr,
-            .setLayoutCount = 0,
-            .pSetLayouts = nullptr,
+            .setLayoutCount = 1,
+            .pSetLayouts = &gfxPipeline.dscLayout_,
             .pushConstantRangeCount = 0,
             .pPushConstantRanges = nullptr,
     };
     CALL_VK(vkCreatePipelineLayout, device.device_, &pipelineLayoutCreateInfo, nullptr,
             &gfxPipeline.layout_);
+
+    // No dynamic state in that tutorial
+    VkPipelineDynamicStateCreateInfo dynamicStateInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .dynamicStateCount = 0,
+            .pDynamicStates = nullptr
+    };
 
     VkShaderModule vertexShader, fragmentShader;
     buildShaderFromFile(manager, "shaders/tri.vert.spv", device.device_, &vertexShader);
@@ -673,17 +879,23 @@ VkResult VulkanContext::createGraphicsPipeline(AAssetManager *manager) {
     };
 
     // Specify vertex input state
-    VkVertexInputBindingDescription vertex_input_bindings{
+    VkVertexInputBindingDescription vertex_input_bindings = {
             .binding = 0,
-            .stride = 3 * sizeof(float),
+            .stride = 5 * sizeof(float),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
     };
-    VkVertexInputAttributeDescription vertex_input_attributes[1] = {
+    std::vector<VkVertexInputAttributeDescription> vertex_input_attributes = {
             {
                     .location = 0,
                     .binding = 0,
                     .format = VK_FORMAT_R32G32B32_SFLOAT,
                     .offset = 0,
+            },
+            {
+                    .location = 1,
+                    .binding = 0,
+                    .format = VK_FORMAT_R32G32_SFLOAT,
+                    .offset = sizeof(float) * 3,
             }
     };
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{
@@ -691,8 +903,8 @@ VkResult VulkanContext::createGraphicsPipeline(AAssetManager *manager) {
             .pNext = nullptr,
             .vertexBindingDescriptionCount = 1,
             .pVertexBindingDescriptions = &vertex_input_bindings,
-            .vertexAttributeDescriptionCount = 1,
-            .pVertexAttributeDescriptions = vertex_input_attributes,
+            .vertexAttributeDescriptionCount = 2,
+            .pVertexAttributeDescriptions = vertex_input_attributes.data(),
     };
 
     // Create the pipeline cache
@@ -708,7 +920,7 @@ VkResult VulkanContext::createGraphicsPipeline(AAssetManager *manager) {
             &gfxPipeline.cache_);
 
     // Create the pipeline
-    VkGraphicsPipelineCreateInfo pipelineCreateInfo{
+    VkGraphicsPipelineCreateInfo pipelineCreateInfo = {
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0,
@@ -722,7 +934,7 @@ VkResult VulkanContext::createGraphicsPipeline(AAssetManager *manager) {
             .pMultisampleState = &multisampleInfo,
             .pDepthStencilState = nullptr,
             .pColorBlendState = &colorBlendInfo,
-            .pDynamicState = nullptr,
+            .pDynamicState = &dynamicStateInfo,
             .layout = gfxPipeline.layout_,
             .renderPass = render.renderPass_,
             .subpass = 0,
@@ -841,14 +1053,23 @@ void VulkanContext::createCommandPool() {
         // Bind what is necessary to the command buffer
         vkCmdBindPipeline(render.cmdBuffer_[bufferIndex],
                           VK_PIPELINE_BIND_POINT_GRAPHICS, gfxPipeline.pipeline_);
+        vkCmdBindDescriptorSets(
+                render.cmdBuffer_[bufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                gfxPipeline.layout_, 0, 1, &gfxPipeline.descSet_, 0, nullptr);
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(render.cmdBuffer_[bufferIndex], 0, 1,
                                &buffers.vertexBuf_, &offset);
 
         // Draw Triangle
-        vkCmdDraw(render.cmdBuffer_[bufferIndex], 3, 1, 0, 0);
+        vkCmdDraw(render.cmdBuffer_[bufferIndex], 6, 1, 0, 0);
 
         vkCmdEndRenderPass(render.cmdBuffer_[bufferIndex]);
+        setImageLayout(render.cmdBuffer_[bufferIndex],
+                       swapchain.displayImages_[bufferIndex],
+                       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
         CALL_VK(vkEndCommandBuffer, render.cmdBuffer_[bufferIndex]);
     }
@@ -892,4 +1113,91 @@ void VulkanContext::drawFrame() {
             .pResults = &result,
     };
     vkQueuePresentKHR(device.queue_, &presentInfo);
+}
+
+void VulkanContext::createTexture(JNIEnv *env, jobject bitmap) {
+    buildTextureFromBitmap(env, bitmap, device, &textureObject, VK_IMAGE_USAGE_SAMPLED_BIT);
+
+    const VkSamplerCreateInfo sampler = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .pNext = nullptr,
+            .magFilter = VK_FILTER_NEAREST,
+            .minFilter = VK_FILTER_NEAREST,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .mipLodBias = 0.0f,
+            .maxAnisotropy = 1,
+            .compareOp = VK_COMPARE_OP_NEVER,
+            .minLod = 0.0f,
+            .maxLod = 0.0f,
+            .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+            .unnormalizedCoordinates = VK_FALSE,
+    };
+    VkImageViewCreateInfo view = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .image = textureObject.image,
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .components =
+                    {
+                            VK_COMPONENT_SWIZZLE_IDENTITY,
+                            VK_COMPONENT_SWIZZLE_IDENTITY,
+                            VK_COMPONENT_SWIZZLE_IDENTITY,
+                            VK_COMPONENT_SWIZZLE_IDENTITY,
+                    },
+            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+    };
+
+    CALL_VK(vkCreateSampler, device.device_, &sampler, nullptr, &textureObject.sampler);
+    CALL_VK(vkCreateImageView, device.device_, &view, nullptr, &textureObject.imageView);
+}
+
+void VulkanContext::createDescriptorSet() {
+    const VkDescriptorPoolSize type_count = {
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+    };
+    const VkDescriptorPoolCreateInfo descriptor_pool = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .pNext = nullptr,
+            .maxSets = 1,
+            .poolSizeCount = 1,
+            .pPoolSizes = &type_count,
+    };
+    CALL_VK(vkCreateDescriptorPool, device.device_, &descriptor_pool, nullptr,
+            &gfxPipeline.descPool_);
+
+    VkDescriptorSetAllocateInfo alloc_info{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .descriptorPool = gfxPipeline.descPool_,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &gfxPipeline.dscLayout_};
+    CALL_VK(vkAllocateDescriptorSets, device.device_, &alloc_info,
+            &gfxPipeline.descSet_);
+
+    VkDescriptorImageInfo texDsts[1] = {
+            {
+                    .sampler = textureObject.sampler,
+                    .imageView = textureObject.imageView,
+                    .imageLayout = VK_IMAGE_LAYOUT_GENERAL
+            }
+    };
+
+    VkWriteDescriptorSet writeDst = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = gfxPipeline.descSet_,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = texDsts,
+            .pBufferInfo = nullptr,
+            .pTexelBufferView = nullptr};
+    vkUpdateDescriptorSets(device.device_, 1, &writeDst, 0, nullptr);
 }

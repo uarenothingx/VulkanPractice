@@ -27,9 +27,10 @@ Java_com_sll_vulkanlib_NativeLib_nativeInitVulkanEngine(JNIEnv *env, jobject thi
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_sll_vulkanlib_NativeLib_nativeInit(JNIEnv *env, jobject thiz, jlong engine,
+                                            jobject bitmap,
                                             jobject manager) {
     auto *assetManager = AAssetManager_fromJava(env, manager);
-    castToProcessor(engine)->initVulkan(assetManager, false);
+    castToProcessor(engine)->initVulkan(env, bitmap, assetManager, false);
 }
 
 extern "C"

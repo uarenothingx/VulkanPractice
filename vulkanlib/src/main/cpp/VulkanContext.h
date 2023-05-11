@@ -6,6 +6,7 @@
 #define VULKANPRACTICE_VULKANCONTEXT_H
 
 #include <android/asset_manager_jni.h>
+#include <android/bitmap.h>
 #include <vector>
 #include "Utils.h"
 
@@ -14,21 +15,9 @@ class VulkanContext {
 public:
     static std::unique_ptr<VulkanContext> create();
 
-    static bool mapMemoryTypeToIndex(VkPhysicalDeviceMemoryProperties memprop, uint32_t typeBits,
-                                     VkFlags requirements_mask,
-                                     uint32_t *typeIndex);
-
-    static void setImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
-                               VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
-                               VkPipelineStageFlags srcStages,
-                               VkPipelineStageFlags destStages);
-
-    static VkResult buildShaderFromFile(AAssetManager *assetManager, const char *filePath, VkDevice device,
-                                        VkShaderModule *shaderOut);
-
     void initWindow(ANativeWindow *platformWindow, uint32_t width, uint32_t height);
 
-    bool initVulkan(AAssetManager *manager, bool enableDebug);
+    bool initVulkan(JNIEnv *env,jobject bitmap, AAssetManager *manager, bool enableDebug);
 
     bool isVulkanReady();
 
@@ -42,7 +31,7 @@ private:
         uint32_t width;
         uint32_t height;
     };
-    WindowInfo window;
+    WindowInfo window = {};
 
     struct VulkanDeviceInfo {
         bool initialized_;
@@ -57,7 +46,7 @@ private:
         VkPhysicalDeviceProperties deviceProperties_;
         VkPhysicalDeviceMemoryProperties deviceMemoryProperties_;
     };
-    VulkanDeviceInfo device;
+    VulkanDeviceInfo device = {};
 
     struct VulkanSwapchainInfo {
         VkSwapchainKHR swapchain_;
@@ -71,19 +60,22 @@ private:
         std::vector<VkImageView> displayViews_;
         std::vector<VkFramebuffer> framebuffers_;
     };
-    VulkanSwapchainInfo swapchain;
+    VulkanSwapchainInfo swapchain = {};
 
     struct VulkanBufferInfo {
         VkBuffer vertexBuf_;
     };
-    VulkanBufferInfo buffers;
+    VulkanBufferInfo buffers = {};
 
     struct VulkanGfxPipelineInfo {
+        VkDescriptorSetLayout dscLayout_;
+        VkDescriptorPool descPool_;
+        VkDescriptorSet descSet_;
         VkPipelineLayout layout_;
         VkPipelineCache cache_;
         VkPipeline pipeline_;
     };
-    VulkanGfxPipelineInfo gfxPipeline;
+    VulkanGfxPipelineInfo gfxPipeline = {};
 
     struct VulkanRenderInfo {
         VkRenderPass renderPass_;
@@ -93,7 +85,17 @@ private:
         VkSemaphore semaphore_;
         VkFence fence_;
     };
-    VulkanRenderInfo render;
+    VulkanRenderInfo render = {};
+
+    struct TextureObject {
+        VkSampler sampler;
+        VkImage image;
+        VkDeviceMemory mem;
+        VkImageView imageView;
+        uint32_t texWidth;
+        uint32_t texHeight;
+    };
+    TextureObject textureObject = {};
 
     void createVulkanDevice(bool enableDebug, VkApplicationInfo *appInfo);
 
@@ -103,8 +105,9 @@ private:
 
     void deleteSwapChain();
 
-    void createFrameBuffers(VkRenderPass &renderPass,
-                            VkImageView depthView = VK_NULL_HANDLE);
+    void createFrameBuffers(VkRenderPass &renderPass);
+
+    void createFenceAndSemaphore();
 
     bool createBuffers();
 
@@ -115,6 +118,25 @@ private:
     void deleteGraphicsPipeline();
 
     void createCommandPool();
+
+    void createTexture(JNIEnv* env, jobject bitmap);
+
+    void createDescriptorSet();
+
+    static bool mapMemoryTypeToIndex(VkPhysicalDeviceMemoryProperties memprop, uint32_t typeBits,
+                                     VkFlags requirements_mask,
+                                     uint32_t *typeIndex);
+
+    static void setImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
+                               VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
+                               VkPipelineStageFlags srcStages,
+                               VkPipelineStageFlags destStages);
+
+    static VkResult buildShaderFromFile(AAssetManager *assetManager, const char *filePath,
+                                        VkDevice device, VkShaderModule *shaderOut);
+
+    static VkResult buildTextureFromBitmap(JNIEnv* env, jobject bitmap, VulkanDeviceInfo device,
+                                           TextureObject* obj,VkImageUsageFlags usage);
 
 };
 

@@ -1,6 +1,7 @@
 package com.sll.vulkanlib
 
 import android.content.res.AssetManager
+import android.graphics.Bitmap
 import android.view.Surface
 
 class NativeLib {
@@ -14,7 +15,7 @@ class NativeLib {
 
     private external fun nativeInitVulkanEngine(): Long
 
-    private external fun nativeInit(engine: Long, manager: AssetManager)
+    private external fun nativeInit(engine: Long, bitmap: Bitmap, manager: AssetManager)
 
     private external fun nativeOnSurfaceReady(
         engine: Long,
@@ -27,9 +28,9 @@ class NativeLib {
 
     private external fun nativeDeInit(engine: Long)
 
-    fun init(manager: AssetManager) {
+    fun init(bitmap: Bitmap, manager: AssetManager) {
         if (engine != -1L) {
-            nativeInit(engine, manager)
+            nativeInit(engine, bitmap, manager)
         }
     }
 

@@ -1,5 +1,6 @@
 package com.sll.vulkanpractice
 
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Log
 import android.view.SurfaceHolder
@@ -20,6 +21,11 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+//        val bitmap = BitmapFactory.decodeStream(assets.open("render-2992x4000.jpg"))
+        val bitmap = BitmapFactory.decodeStream(assets.open("render-bitmap.jpg"))
+//        val bitmap = BitmapFactory.decodeStream(assets.open("sample_tex.png"))
+        assert(bitmap != null)
+
         mSurfaceView = findViewById(R.id.render_view)
 
         mSurfaceView.holder.addCallback(object : SurfaceHolder.Callback {
@@ -33,7 +39,7 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "[sll_debug] surfaceChanged: ")
                 if (isInit.compareAndSet(false, true)) {
                     vulkan.onSurfaceReady(holder.surface, width, height)
-                    vulkan.init(assets)
+                    vulkan.init(bitmap, assets)
                     draw()
                 }
             }
@@ -49,10 +55,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun draw() {
         thread {
-            while (isInit.get()) {
                 vulkan.draw()
-                Thread.sleep(1000)
-            }
+//            while (isInit.get()) {
+//                vulkan.draw()
+//                Thread.sleep(1000)
+//            }
             Log.d(TAG, "[sll_debug] draw: done")
         }
     }
