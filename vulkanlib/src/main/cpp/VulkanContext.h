@@ -6,6 +6,7 @@
 #define VULKANPRACTICE_VULKANCONTEXT_H
 
 #include <android/asset_manager_jni.h>
+#include <android/hardware_buffer_jni.h>
 #include <android/bitmap.h>
 #include <vector>
 #include "Utils.h"
@@ -17,7 +18,7 @@ public:
 
     void initWindow(ANativeWindow *platformWindow, uint32_t width, uint32_t height);
 
-    bool initVulkan(JNIEnv *env,jobject bitmap, AAssetManager *manager, bool enableDebug);
+    bool initVulkan(JNIEnv *env,jobject bitmap, AHardwareBuffer *buffer, AAssetManager *manager, bool enableDebug);
 
     bool isVulkanReady();
 
@@ -97,6 +98,14 @@ private:
     };
     TextureObject textureObject = {};
 
+    struct HardwareObject {
+        VkSampler sampler;
+        VkImage image;
+        VkDeviceMemory mem;
+        VkImageView imageView;
+    };
+    HardwareObject hardwareObject = {};
+
     void createVulkanDevice(bool enableDebug, VkApplicationInfo *appInfo);
 
     void createRenderPass();
@@ -138,7 +147,7 @@ private:
     static VkResult buildTextureFromBitmap(JNIEnv* env, jobject bitmap, VulkanDeviceInfo device,
                                            TextureObject* obj,VkImageUsageFlags usage);
 
+    void createFromHardwareBuffer(AHardwareBuffer *buffer);
 };
-
 
 #endif //VULKANPRACTICE_VULKANCONTEXT_H

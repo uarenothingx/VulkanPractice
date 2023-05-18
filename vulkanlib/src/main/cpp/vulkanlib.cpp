@@ -28,9 +28,11 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_sll_vulkanlib_NativeLib_nativeInit(JNIEnv *env, jobject thiz, jlong engine,
                                             jobject bitmap,
+                                            jobject buffer,
                                             jobject manager) {
     auto *assetManager = AAssetManager_fromJava(env, manager);
-    castToProcessor(engine)->initVulkan(env, bitmap, assetManager, false);
+    AHardwareBuffer* nativeBuffer = AHardwareBuffer_fromHardwareBuffer(env, buffer);
+    castToProcessor(engine)->initVulkan(env, bitmap, nativeBuffer, assetManager, false);
 }
 
 extern "C"

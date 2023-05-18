@@ -292,7 +292,8 @@ void VulkanContext::initWindow(ANativeWindow *platformWindow, uint32_t width, ui
 }
 
 bool
-VulkanContext::initVulkan(JNIEnv *env, jobject bitmap, AAssetManager *manager, bool enableDebug) {
+VulkanContext::initVulkan(JNIEnv *env, jobject bitmap, AHardwareBuffer *buffer,
+                          AAssetManager *manager, bool enableDebug) {
     VkApplicationInfo appInfo = {
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pNext = nullptr,
@@ -306,7 +307,7 @@ VulkanContext::initVulkan(JNIEnv *env, jobject bitmap, AAssetManager *manager, b
     // Create Instance, Device And Pick QueueFamily<VK_QUEUE_GRAPHICS_BIT>
     createVulkanDevice(enableDebug, &appInfo);
 
-    // Create Surface And Swapchain
+    // Create Surface And Swapchain; Require NativeWindow<>
     createSwapChain();
 
     // Create render pass
@@ -316,7 +317,11 @@ VulkanContext::initVulkan(JNIEnv *env, jobject bitmap, AAssetManager *manager, b
     createFrameBuffers(render.renderPass_);
 
     // Create bitmap texture
-    createTexture(env, bitmap);
+//    createTexture(env, bitmap);
+    // todo render from hardware buffer
+    LOGE("----- create hard ware buffer -----");
+    createFromHardwareBuffer(buffer);
+    LOGE("----- create hard ware buffer -----");
 
     // Create Vertex Fuffers
     createBuffers();
@@ -366,25 +371,25 @@ void VulkanContext::createVulkanDevice(bool enableDebug,
     }
 
     std::vector<const char *> instanceExtensions = {
-            // VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
-            // VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-            // VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME,
+             VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
+             VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+             VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME,
             VK_KHR_SURFACE_EXTENSION_NAME,
             VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
-            // VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+             VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
     };
     if (enableDebug) {
         instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
     std::vector<const char *> deviceExtensions = {
-            // VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
-            // VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
-            // VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+             VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+             VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+             VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
             // VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
-            // VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+             VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-            // VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+             VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
             // VK_KHR_MAINTENANCE1_EXTENSION_NAME,
             // VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
             // VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
@@ -1115,6 +1120,196 @@ void VulkanContext::drawFrame() {
     vkQueuePresentKHR(device.queue_, &presentInfo);
 }
 
+
+void VulkanContext::createFromHardwareBuffer(AHardwareBuffer *buffer) {
+    struct hwinfo {
+        AHardwareBuffer *buffer = nullptr;
+        uint64_t allocationSize = 0;
+        uint32_t memoryTypeIndex = 0;
+    } info;
+
+    AHardwareBuffer_Desc ahwbDesc = {};
+    AHardwareBuffer_describe(buffer, &ahwbDesc);
+
+    info.buffer = buffer;
+
+    VkAndroidHardwareBufferFormatPropertiesANDROID formatInfo = {
+            .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID,
+    };
+    VkAndroidHardwareBufferPropertiesANDROID properties = {
+            .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
+            .pNext = &formatInfo,
+    };
+    CALL_VK(vkGetAndroidHardwareBufferPropertiesANDROID, device.device_, info.buffer, &properties);
+
+    // init image
+    {
+        VkExternalMemoryImageCreateInfo externalCreateInfo = {
+                .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+                .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID
+        };
+        VkExternalFormatANDROID extFormat = {
+                .sType = VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID,
+                .pNext = &externalCreateInfo,
+        };
+
+        VkImageCreateInfo image_create_info = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                .pNext = &extFormat,
+                .imageType = VK_IMAGE_TYPE_2D,
+                .extent = {
+                        .width = ahwbDesc.width,
+                        .height = ahwbDesc.height,
+                        .depth = 1,
+                },
+                .mipLevels = 1u,
+                .arrayLayers = ahwbDesc.layers,
+                .samples = VK_SAMPLE_COUNT_1_BIT,
+                .tiling = VK_IMAGE_TILING_OPTIMAL,
+                .usage = VK_IMAGE_USAGE_SAMPLED_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                .queueFamilyIndexCount = 0,
+                .pQueueFamilyIndices   = nullptr,
+                .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
+        };
+        image_create_info.format = formatInfo.format;
+        if (image_create_info.format == VK_FORMAT_UNDEFINED) {
+            extFormat.externalFormat = formatInfo.externalFormat;
+        }
+
+        CALL_VK(vkCreateImage, device.device_, &image_create_info, nullptr, &hardwareObject.image);
+    }
+
+    // allocate mem
+    {
+        auto map = mapMemoryTypeToIndex(device.deviceMemoryProperties_,
+                                        properties.memoryTypeBits, 0, &info.memoryTypeIndex);
+
+        LOGE("mapMemoryTypeToIndex, %d", map);
+        info.allocationSize = properties.allocationSize;
+
+        VkImportAndroidHardwareBufferInfoANDROID androidHardwareBufferInfo = {
+                .sType = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
+                .buffer = info.buffer,
+        };
+        VkMemoryDedicatedAllocateInfo memoryAllocateInfo = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+                .pNext  = &androidHardwareBufferInfo,
+                .image  = hardwareObject.image,
+        };
+        VkMemoryAllocateInfo allocateInfo = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                .pNext           = &memoryAllocateInfo,
+                .allocationSize  = info.allocationSize,
+                .memoryTypeIndex = info.memoryTypeIndex,
+        };
+
+        CALL_VK(vkAllocateMemory, device.device_, &allocateInfo, nullptr, &hardwareObject.mem);
+    }
+
+    // bind mem image
+    {
+        VkBindImageMemoryInfo bind_info = {
+                .sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO,
+                .image = hardwareObject.image,
+                .memory = hardwareObject.mem,
+                .memoryOffset = 0,
+        };
+        CALL_VK(vkBindImageMemory2, device.device_, 1, &bind_info);
+    }
+
+    // assert mem requires
+    {
+        VkImageMemoryRequirementsInfo2 mem_reqs_info = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
+                .image = hardwareObject.image
+        };
+        VkMemoryDedicatedRequirements ded_mem_reqs = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS,
+        };
+        VkMemoryRequirements2 mem_reqs2 = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+                .pNext = &ded_mem_reqs,
+        };
+        vkGetImageMemoryRequirements2(device.device_, &mem_reqs_info, &mem_reqs2);
+        if (!ded_mem_reqs.prefersDedicatedAllocation || !ded_mem_reqs.requiresDedicatedAllocation) {
+            LOGE("mem error");
+        }
+    }
+
+    // ycb sampler and image view
+    {
+        VkExternalFormatANDROID externalFormatAndroid = {
+                .sType = VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID,
+        };
+        VkSamplerYcbcrConversionCreateInfo samplerYcbConversionDesc = {
+                .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO,
+                .pNext = &externalFormatAndroid,
+                .format = formatInfo.format,
+                .ycbcrRange = formatInfo.suggestedYcbcrRange,
+                .components = formatInfo.samplerYcbcrConversionComponents,
+                .xChromaOffset = formatInfo.suggestedXChromaOffset,
+                .yChromaOffset = formatInfo.suggestedYChromaOffset,
+                .chromaFilter = VK_FILTER_NEAREST,
+                .forceExplicitReconstruction = false,
+        };
+        if (samplerYcbConversionDesc.format == VK_FORMAT_UNDEFINED) {
+            externalFormatAndroid.externalFormat = formatInfo.externalFormat;
+            samplerYcbConversionDesc.ycbcrModel = formatInfo.suggestedYcbcrModel;
+        } else {
+            samplerYcbConversionDesc.ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_601;
+        }
+
+        VkSamplerYcbcrConversion ycbConversion;
+        CALL_VK(vkCreateSamplerYcbcrConversion, device.device_, &samplerYcbConversionDesc, nullptr, &ycbConversion);
+
+        VkSamplerYcbcrConversionInfo ycbConversionDesc = {
+                .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
+                .conversion = ycbConversion,
+        };
+        VkSamplerCreateInfo samplerDesc = {
+                .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                .pNext                   = &ycbConversionDesc,
+                .magFilter               = VK_FILTER_NEAREST,
+                .minFilter               = VK_FILTER_NEAREST,
+                .mipmapMode              = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+                .addressModeU            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                .addressModeV            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                .addressModeW            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                .mipLodBias              = 0.0f,
+                .anisotropyEnable        = false,
+                .maxAnisotropy           = 1.0f,
+                .compareEnable           = false,
+                .compareOp               = VK_COMPARE_OP_NEVER,
+                .minLod                  = 0.0f,
+                .maxLod                  = 0.0f,
+                .borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+                .unnormalizedCoordinates = false,
+        };
+
+        CALL_VK(vkCreateSampler, device.device_, &samplerDesc, nullptr, &hardwareObject.sampler);
+
+        VkImageViewCreateInfo imageViewDesc = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .pNext                           = &ycbConversionDesc,
+                .image                           = hardwareObject.image,
+                .viewType                        = VK_IMAGE_VIEW_TYPE_2D,
+                .format                          = formatInfo.format,
+                .components                      = {VK_COMPONENT_SWIZZLE_IDENTITY,
+                                                    VK_COMPONENT_SWIZZLE_IDENTITY,
+                                                    VK_COMPONENT_SWIZZLE_IDENTITY,
+                                                    VK_COMPONENT_SWIZZLE_IDENTITY},
+                .subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                .subresourceRange.baseMipLevel   = 0,
+                .subresourceRange.levelCount     = 1,
+                .subresourceRange.baseArrayLayer = 0,
+                .subresourceRange.layerCount     = 1,
+        };
+
+        CALL_VK(vkCreateImageView, device.device_, &imageViewDesc, nullptr, &hardwareObject.imageView);
+    }
+}
+
 void VulkanContext::createTexture(JNIEnv *env, jobject bitmap) {
     buildTextureFromBitmap(env, bitmap, device, &textureObject, VK_IMAGE_USAGE_SAMPLED_BIT);
 
@@ -1182,8 +1377,8 @@ void VulkanContext::createDescriptorSet() {
 
     VkDescriptorImageInfo texDsts[1] = {
             {
-                    .sampler = textureObject.sampler,
-                    .imageView = textureObject.imageView,
+                    .sampler = hardwareObject.sampler,
+                    .imageView = hardwareObject.imageView,
                     .imageLayout = VK_IMAGE_LAYOUT_GENERAL
             }
     };

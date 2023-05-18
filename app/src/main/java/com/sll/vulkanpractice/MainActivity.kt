@@ -8,6 +8,8 @@ import android.view.SurfaceView
 import androidx.appcompat.app.AppCompatActivity
 import com.sll.vulkanlib.NativeLib
 import java.util.concurrent.atomic.AtomicBoolean
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
@@ -39,8 +41,8 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "[sll_debug] surfaceChanged: ")
                 if (isInit.compareAndSet(false, true)) {
                     vulkan.onSurfaceReady(holder.surface, width, height)
-                    vulkan.init(bitmap, assets)
-                    draw()
+//                    vulkan.init(bitmap,  assets)
+//                    draw()
                 }
             }
 
@@ -51,7 +53,26 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+
+
+
+        val camera = CameraContext(applicationContext).apply { init() }
+        lifecycleScope.launch {
+            camera.initializeCamera({}, {
+                val image = it.acquireLatestImage() ?: return@initializeCamera
+                val buffer = image.hardwareBuffer ?: return@initializeCamera
+                if (isInit.get() && !isSetHardwareBuffer.get()) {
+                    vulkan.init(bitmap, buffer, assets)
+                    isSetHardwareBuffer.set(true)
+                    draw()
+                }
+                buffer.close()
+                image.close()
+            })
+        }
     }
+
+    private val isSetHardwareBuffer = AtomicBoolean(false)
 
     private fun draw() {
         thread {
