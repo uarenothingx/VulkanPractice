@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package com.gain.vulkan.camera
+package com.sll.vulkanpractice
 
 import android.graphics.Point
 import android.hardware.camera2.CameraCharacteristics

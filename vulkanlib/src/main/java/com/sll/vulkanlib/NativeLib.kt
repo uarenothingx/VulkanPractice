@@ -16,7 +16,9 @@ class NativeLib {
 
     private external fun nativeInitVulkanEngine(): Long
 
-    private external fun nativeInit(engine: Long, bitmap: Bitmap, buffer: HardwareBuffer, manager: AssetManager)
+    private external fun nativeInit(engine: Long, bitmap: Bitmap, manager: AssetManager)
+
+    private external fun nativePrepareHardwareBuffer(engine: Long, hardwareBuffer: HardwareBuffer)
 
     private external fun nativeOnSurfaceReady(
         engine: Long,
@@ -29,9 +31,15 @@ class NativeLib {
 
     private external fun nativeDeInit(engine: Long)
 
-    fun init(bitmap: Bitmap, buffer: HardwareBuffer, manager: AssetManager) {
+    fun init(bitmap: Bitmap, manager: AssetManager) {
         if (engine != -1L) {
-            nativeInit(engine, bitmap, buffer, manager)
+            nativeInit(engine, bitmap, manager)
+        }
+    }
+
+    fun prepareHardwareBuffer(buffer: HardwareBuffer) {
+        if (engine != -1L) {
+            nativePrepareHardwareBuffer(engine, buffer)
         }
     }
 

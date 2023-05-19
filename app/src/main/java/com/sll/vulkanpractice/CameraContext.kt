@@ -3,7 +3,6 @@ package com.sll.vulkanpractice
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.ImageFormat
-import android.graphics.SurfaceTexture
 import android.hardware.HardwareBuffer
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -14,9 +13,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.util.Size
-import android.view.Display
 import android.view.Surface
-import com.gain.vulkan.camera.getPreviewOutputSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -76,7 +73,7 @@ class CameraContext(private val applicationContext: Context) {
 
             mOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION)!!
 
-            val previewSize = Size(1080, 1080)
+            val previewSize = Size(1280, 720)
 
             Log.i("Vulkan", "previewSize:${previewSize.width}x${previewSize.height}")
             configPreview(previewSize)

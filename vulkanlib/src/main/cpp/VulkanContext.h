@@ -18,7 +18,9 @@ public:
 
     void initWindow(ANativeWindow *platformWindow, uint32_t width, uint32_t height);
 
-    bool initVulkan(JNIEnv *env,jobject bitmap, AHardwareBuffer *buffer, AAssetManager *manager, bool enableDebug);
+    bool initVulkan(JNIEnv *env,jobject bitmap, AAssetManager *manager, bool enableDebug);
+
+    bool prepareHardwareBuffer(AHardwareBuffer *buffer);
 
     bool isVulkanReady();
 

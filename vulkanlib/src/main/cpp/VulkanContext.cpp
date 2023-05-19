@@ -292,7 +292,7 @@ void VulkanContext::initWindow(ANativeWindow *platformWindow, uint32_t width, ui
 }
 
 bool
-VulkanContext::initVulkan(JNIEnv *env, jobject bitmap, AHardwareBuffer *buffer,
+VulkanContext::initVulkan(JNIEnv *env, jobject bitmap,
                           AAssetManager *manager, bool enableDebug) {
     VkApplicationInfo appInfo = {
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -319,9 +319,9 @@ VulkanContext::initVulkan(JNIEnv *env, jobject bitmap, AHardwareBuffer *buffer,
     // Create bitmap texture
 //    createTexture(env, bitmap);
     // todo render from hardware buffer
-    LOGE("----- create hard ware buffer -----");
-    createFromHardwareBuffer(buffer);
-    LOGE("----- create hard ware buffer -----");
+    // LOGE("----- create hard ware buffer -----");
+    // createFromHardwareBuffer(buffer);
+    // LOGE("----- create hard ware buffer -----");
 
     // Create Vertex Fuffers
     createBuffers();
@@ -338,6 +338,31 @@ VulkanContext::initVulkan(JNIEnv *env, jobject bitmap, AHardwareBuffer *buffer,
 
     device.initialized_ = true;
 
+    return true;
+}
+
+bool VulkanContext::prepareHardwareBuffer(AHardwareBuffer* buffer) {
+    createFromHardwareBuffer(buffer);
+    VkDescriptorImageInfo texDsts[1] = {
+            {
+                    .sampler = hardwareObject.sampler,
+                    .imageView = hardwareObject.imageView,
+                    .imageLayout = VK_IMAGE_LAYOUT_GENERAL
+            }
+    };
+
+    VkWriteDescriptorSet writeDst = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = gfxPipeline.descSet_,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = texDsts,
+            .pBufferInfo = nullptr,
+            .pTexelBufferView = nullptr};
+    vkUpdateDescriptorSets(device.device_, 1, &writeDst, 0, nullptr);
     return true;
 }
 
@@ -1176,6 +1201,9 @@ void VulkanContext::createFromHardwareBuffer(AHardwareBuffer *buffer) {
         if (image_create_info.format == VK_FORMAT_UNDEFINED) {
             extFormat.externalFormat = formatInfo.externalFormat;
         }
+        if (hardwareObject.image) {
+            vkDestroyImage(device.device_, hardwareObject.image, nullptr);
+        }
 
         CALL_VK(vkCreateImage, device.device_, &image_create_info, nullptr, &hardwareObject.image);
     }
@@ -1375,24 +1403,26 @@ void VulkanContext::createDescriptorSet() {
     CALL_VK(vkAllocateDescriptorSets, device.device_, &alloc_info,
             &gfxPipeline.descSet_);
 
-    VkDescriptorImageInfo texDsts[1] = {
-            {
-                    .sampler = hardwareObject.sampler,
-                    .imageView = hardwareObject.imageView,
-                    .imageLayout = VK_IMAGE_LAYOUT_GENERAL
-            }
-    };
+    if (hardwareObject.imageView) {
+        VkDescriptorImageInfo texDsts[1] = {
+                {
+                        .sampler = hardwareObject.sampler,
+                        .imageView = hardwareObject.imageView,
+                        .imageLayout = VK_IMAGE_LAYOUT_GENERAL
+                }
+        };
 
-    VkWriteDescriptorSet writeDst = {
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = gfxPipeline.descSet_,
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = texDsts,
-            .pBufferInfo = nullptr,
-            .pTexelBufferView = nullptr};
-    vkUpdateDescriptorSets(device.device_, 1, &writeDst, 0, nullptr);
+        VkWriteDescriptorSet writeDst = {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext = nullptr,
+                .dstSet = gfxPipeline.descSet_,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = texDsts,
+                .pBufferInfo = nullptr,
+                .pTexelBufferView = nullptr};
+        vkUpdateDescriptorSets(device.device_, 1, &writeDst, 0, nullptr);
+    }
 }
