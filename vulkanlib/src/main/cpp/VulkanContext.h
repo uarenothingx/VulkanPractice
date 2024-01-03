@@ -18,7 +18,7 @@ public:
 
     void initWindow(ANativeWindow *platformWindow, uint32_t width, uint32_t height);
 
-    bool initVulkan(JNIEnv *env,jobject bitmap, AAssetManager *manager, bool enableDebug);
+    bool initVulkan(JNIEnv *env, jobject bitmap, AAssetManager *manager, bool enableDebug);
 
     bool prepareHardwareBuffer(AHardwareBuffer *buffer);
 
@@ -130,7 +130,7 @@ private:
 
     void createCommandPool();
 
-    void createTexture(JNIEnv* env, jobject bitmap);
+    void createTexture(JNIEnv *env, jobject bitmap);
 
     void createDescriptorSet();
 
@@ -146,8 +146,8 @@ private:
     static VkResult buildShaderFromFile(AAssetManager *assetManager, const char *filePath,
                                         VkDevice device, VkShaderModule *shaderOut);
 
-    static VkResult buildTextureFromBitmap(JNIEnv* env, jobject bitmap, VulkanDeviceInfo device,
-                                           TextureObject* obj,VkImageUsageFlags usage);
+    static VkResult buildTextureFromBitmap(JNIEnv *env, jobject bitmap, VulkanDeviceInfo device,
+                                           TextureObject *obj, VkImageUsageFlags usage);
 
     void createFromHardwareBuffer(AHardwareBuffer *buffer);
 };

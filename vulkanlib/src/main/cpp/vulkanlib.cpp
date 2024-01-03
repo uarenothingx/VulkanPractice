@@ -38,7 +38,7 @@ JNIEXPORT void JNICALL
 Java_com_sll_vulkanlib_NativeLib_nativePrepareHardwareBuffer(JNIEnv *env, jobject thiz,
                                                              jlong engine,
                                                              jobject hardware_buffer) {
-    AHardwareBuffer* nativeBuffer = AHardwareBuffer_fromHardwareBuffer(env, hardware_buffer);
+    AHardwareBuffer *nativeBuffer = AHardwareBuffer_fromHardwareBuffer(env, hardware_buffer);
     castToProcessor(engine)->prepareHardwareBuffer(nativeBuffer);
 }
 

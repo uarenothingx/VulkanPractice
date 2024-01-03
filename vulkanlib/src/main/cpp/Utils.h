@@ -28,7 +28,7 @@
         }                                                                                   \
     } while (0)
 
-inline const char* vkResultToStr(VkResult result) {
+inline const char *vkResultToStr(VkResult result) {
     switch (result) {
         case VK_SUCCESS:
             return "VK_SUCCESS";

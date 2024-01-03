@@ -341,7 +341,7 @@ VulkanContext::initVulkan(JNIEnv *env, jobject bitmap,
     return true;
 }
 
-bool VulkanContext::prepareHardwareBuffer(AHardwareBuffer* buffer) {
+bool VulkanContext::prepareHardwareBuffer(AHardwareBuffer *buffer) {
     createFromHardwareBuffer(buffer);
     VkDescriptorImageInfo texDsts[1] = {
             {
@@ -396,25 +396,25 @@ void VulkanContext::createVulkanDevice(bool enableDebug,
     }
 
     std::vector<const char *> instanceExtensions = {
-             VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
-             VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-             VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
+            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME,
             VK_KHR_SURFACE_EXTENSION_NAME,
             VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
-             VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
     };
     if (enableDebug) {
         instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
     std::vector<const char *> deviceExtensions = {
-             VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
-             VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
-             VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+            VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+            VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
             // VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
-             VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+            VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-             VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+            VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
             // VK_KHR_MAINTENANCE1_EXTENSION_NAME,
             // VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
             // VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
@@ -459,6 +459,7 @@ void VulkanContext::createVulkanDevice(bool enableDebug,
     // Get GPU prop
     vkGetPhysicalDeviceProperties(device.gpuDevice_, &device.deviceProperties_);
     vkGetPhysicalDeviceMemoryProperties(device.gpuDevice_, &device.deviceMemoryProperties_);
+    LOGE("using device %s", device.deviceProperties_.deviceName);
 
     // Create a logical device (vulkan device)
     float priorities[] = {
@@ -1289,7 +1290,8 @@ void VulkanContext::createFromHardwareBuffer(AHardwareBuffer *buffer) {
         }
 
         VkSamplerYcbcrConversion ycbConversion;
-        CALL_VK(vkCreateSamplerYcbcrConversion, device.device_, &samplerYcbConversionDesc, nullptr, &ycbConversion);
+        CALL_VK(vkCreateSamplerYcbcrConversion, device.device_, &samplerYcbConversionDesc, nullptr,
+                &ycbConversion);
 
         VkSamplerYcbcrConversionInfo ycbConversionDesc = {
                 .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
@@ -1334,7 +1336,8 @@ void VulkanContext::createFromHardwareBuffer(AHardwareBuffer *buffer) {
                 .subresourceRange.layerCount     = 1,
         };
 
-        CALL_VK(vkCreateImageView, device.device_, &imageViewDesc, nullptr, &hardwareObject.imageView);
+        CALL_VK(vkCreateImageView, device.device_, &imageViewDesc, nullptr,
+                &hardwareObject.imageView);
     }
 }
 
